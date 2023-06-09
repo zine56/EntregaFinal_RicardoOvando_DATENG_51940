@@ -13,6 +13,7 @@ from psycopg2 import sql
 print(os.environ)
 
 try:
+    # por algun motivo si no le pongo esta linea de autocommit no inserta, incluso teniendo el commit alla final
     extensions.ISOLATION_LEVEL_AUTOCOMMIT = psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT
     conn = psycopg2.connect(
         dbname=os.environ['DB_NAME'],
@@ -56,6 +57,7 @@ try:
 
     stock_symbols = ["GME", "AMZN", "AAPL", "GOOGL", "MSFT", "TSLA", "META", "NFLX", "NVDA", "JPM", "AMD", "AMC"]
 
+    # la api tiene un limite de 3 simbolos por request, por eso tengo que hacer multiples requests
     groups = [stock_symbols[i:i+3] for i in range(0, len(stock_symbols), 3)]
     group_strings = [",".join(group) for group in groups]
 
@@ -127,7 +129,6 @@ try:
             )
         )
 
-    # Commit the changes
     conn.commit()
 
 except requests.RequestException as e:
