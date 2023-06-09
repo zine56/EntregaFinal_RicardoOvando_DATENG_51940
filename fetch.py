@@ -77,6 +77,11 @@ try:
     concatenated_df = concatenated_df.reset_index(drop=True)
     print(concatenated_df)
 
+
+    # Mostrar estadísticas del DataFrame
+    print(concatenated_df.describe())
+
+
     # Insert each row into the table
     for _, row in concatenated_df.iterrows():
         cur.execute(
