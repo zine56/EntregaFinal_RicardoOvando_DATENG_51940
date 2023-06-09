@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . /app
 
 # Install the required dependencies
-RUN pip install psycopg2 requests
+RUN pip install psycopg2 requests pandas 
 
 
 CMD ["python", "/app/fetch.py"]`
