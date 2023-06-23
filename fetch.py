@@ -4,16 +4,17 @@ import psycopg2
 import hashlib
 import uuid
 import traceback
+import datetime
 
 import pandas as pd
-import json
 
 from psycopg2 import extensions
 from psycopg2 import sql
+from requests.exceptions import RequestException
+
 print(os.environ)
 
 try:
-    # por algun motivo si no le pongo esta linea de autocommit no inserta, incluso teniendo el commit alla final
     extensions.ISOLATION_LEVEL_AUTOCOMMIT = psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT
     conn = psycopg2.connect(
         dbname=os.environ['DB_NAME'],
@@ -26,8 +27,8 @@ try:
 
     cur.execute('''
         CREATE TABLE IF NOT EXISTS "stock" (
-            "id" INT IDENTITY(1,1) PRIMARY KEY,
-            "ticker" VARCHAR(10) NULL DEFAULT NULL,
+            "ticker" VARCHAR(10) NOT NULL,
+            "hour_key" VARCHAR(17) NOT NULL,
             "name" VARCHAR(100) NULL DEFAULT NULL,
             "exchange_short" VARCHAR(20) NULL DEFAULT NULL,
             "exchange_long" VARCHAR(100) NULL DEFAULT NULL,
@@ -36,6 +37,7 @@ try:
             "price" FLOAT8 NULL DEFAULT NULL,
             "day_high" FLOAT8 NULL DEFAULT NULL,
             "day_low" FLOAT8 NULL DEFAULT NULL,
+            "day_avg" FLOAT8 NULL DEFAULT NULL,
             "day_open" FLOAT8 NULL DEFAULT NULL,
             "52_week_high" FLOAT8 NULL DEFAULT NULL,
             "52_week_low" FLOAT8 NULL DEFAULT NULL,
@@ -47,8 +49,11 @@ try:
             "is_extended_hours_price" BOOL NULL DEFAULT NULL,
             "last_trade_time" TIMESTAMP NULL DEFAULT NULL,
             "insertion_date" TIMESTAMP NULL DEFAULT GETDATE(),
-            "batch_id" BIGINT NULL DEFAULT NULL
-        );
+            "batch_id" BIGINT NULL DEFAULT NULL,
+            "price_percentage" FLOAT8 NULL DEFAULT NULL
+        )
+        DISTKEY("ticker")
+        SORTKEY("hour_key");
     ''')
 
     uuid_string = str(uuid.uuid4()).replace('-', '')
@@ -57,37 +62,58 @@ try:
 
     stock_symbols = ["GME", "AMZN", "AAPL", "GOOGL", "MSFT", "TSLA", "META", "NFLX", "NVDA", "JPM", "AMD", "AMC"]
 
-    # la api tiene un limite de 3 simbolos por request, por eso tengo que hacer multiples requests
     groups = [stock_symbols[i:i+3] for i in range(0, len(stock_symbols), 3)]
-    group_strings = [",".join(group) for group in groups]
 
-    df_list = []
+    hour_key = datetime.datetime.now().strftime('%Y_%m_%d_%H_00')
 
-    for group_string in group_strings:
+    concatenated_df = pd.DataFrame()
+
+    for group in groups:
+        group_string = ",".join(group)
         print(group_string)
 
         response = requests.get(f"https://api.stockdata.org/v1/data/quote?symbols={group_string}&api_token={os.environ['API_TOKEN']}")
         data = response.json()
         print("data", data)
         df = pd.DataFrame(data['data'])
-        df_list.append(df)
-        print(df)
+        df['hour_key'] = hour_key
+        concatenated_df = pd.concat([concatenated_df, df], ignore_index=True)
+        print(concatenated_df)
 
-    concatenated_df = pd.concat(df_list)
-    concatenated_df = concatenated_df.reset_index(drop=True)
-    print(concatenated_df)
+    # Eliminar duplicados basados en la clave ('ticker', 'hour_key')
+    concatenated_df.drop_duplicates(subset=['ticker', 'hour_key'], keep='first', inplace=True)
 
+    # Verificar valores nulos o vacíos en cada fila y eliminar las filas que los contengan
+    rows_with_null_values = concatenated_df.isnull().any(axis=1)
+    if rows_with_null_values.any():
+        print("Filas con valores nulos o vacíos:")
+        print(concatenated_df[rows_with_null_values])
+        concatenated_df = concatenated_df[~rows_with_null_values]
 
-    # Mostrar estadísticas del DataFrame
+    # Realizar transformaciones de datos 
+    concatenated_df['price_percentage'] = concatenated_df['price'] * 100
+    concatenated_df['day_avg'] = (concatenated_df['day_high'] + concatenated_df['day_low']) / 2
+
     print(concatenated_df.describe())
 
+    # Eliminar registros existentes con la misma clave de la tabla
+    for _, row in concatenated_df.iterrows():
+        cur.execute(
+            """
+            DELETE FROM "stock"
+            WHERE "ticker" = %s
+            AND "hour_key" = %s
+            """,
+            (row['ticker'], row['hour_key'])
+        )
 
-    # Insert each row into the table
+    # Insertar los datos transformados en la tabla
     for _, row in concatenated_df.iterrows():
         cur.execute(
             """
             INSERT INTO "stock" (
                 "ticker",
+                "hour_key",
                 "name",
                 "exchange_short",
                 "exchange_long",
@@ -96,6 +122,7 @@ try:
                 "price",
                 "day_high",
                 "day_low",
+                "day_avg",
                 "day_open",
                 "52_week_high",
                 "52_week_low",
@@ -106,12 +133,15 @@ try:
                 "volume",
                 "is_extended_hours_price",
                 "last_trade_time",
-                "batch_id"
+                "insertion_date",
+                "batch_id",
+                "price_percentage"
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 row['ticker'],
+                row['hour_key'],
                 row['name'],
                 row['exchange_short'],
                 row['exchange_long'],
@@ -120,6 +150,7 @@ try:
                 row['price'],
                 row['day_high'],
                 row['day_low'],
+                row['day_avg'],
                 row['day_open'],
                 row['52_week_high'],
                 row['52_week_low'],
@@ -130,24 +161,23 @@ try:
                 row['volume'],
                 row['is_extended_hours_price'],
                 row['last_trade_time'],
-                batch_id
+                datetime.datetime.now(),
+                batch_id,
+                row['price_percentage']
             )
         )
-
     conn.commit()
 
-except requests.RequestException as e:
+except RequestException as e:
     error_message = str(e)
-    print("Error occurred during API request:", error_message)
+    print("Error en la solicitud del API:", error_message)
 except psycopg2.Error as e:
     error_message = str(e)
-    print("Error occurred during insert:", error_message)
+    print("Error durante la inserción:", error_message)
 except Exception as e:
-    # An error occurred during the execution
     error_message = str(e)
     traceback.print_exc()
 
 finally:
-    # Close the cursor and connection
     cur.close()
     conn.close()
