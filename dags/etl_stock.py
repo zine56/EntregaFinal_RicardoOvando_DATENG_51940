@@ -1,4 +1,5 @@
 # Este es el DAG que orquesta el ETL de la tabla users
+import os
 
 from airflow import DAG
 from airflow.operators.python_operator import PythonOperator
@@ -66,6 +67,9 @@ default_args = {
     "start_date": datetime(2023, 7, 1),
     "retries": 0,
     "retry_delay": timedelta(seconds=5),
+    "email": [os.environ.get('EMAIL_TO', 'default-email@example.com')], 
+    "email_on_failure":True,
+    "email_on_retry":False,
 }
 
 with DAG(
@@ -73,7 +77,7 @@ with DAG(
     default_args=default_args,
     description="ETL de stock diario",
     schedule_interval="@daily",
-    catchup=False,
+    catchup=False
 ) as dag:
     
     # Tareas
@@ -97,9 +101,9 @@ with DAG(
 
     spark_etl_stock = SparkSubmitOperator(
         task_id="spark_etl_stock",
-        application=f'{Variable.get("spark_scripts_dir")}/ETL_Stock.py',
+        application=f'{Variable.get("SPARK_SCRIPTS_DIR")}/ETL_Stock.py',
         conn_id="spark_default",
-        driver_class_path=Variable.get("driver_class_path"),
+        driver_class_path=Variable.get("DRIVER_CLASS_PATH"),
     )
 
     get_process_date_task >> create_table >> clean_process_date >> spark_etl_stock

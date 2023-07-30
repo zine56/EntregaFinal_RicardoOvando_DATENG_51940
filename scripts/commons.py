@@ -3,17 +3,17 @@ from psycopg2 import connect
 from pyspark.sql import SparkSession
 
 # Variables de configuración de Redshift
-REDSHIFT_HOST = env["REDSHIFT_HOST"]
-REDSHIFT_PORT = env["REDSHIFT_PORT"]
-REDSHIFT_DB = env["REDSHIFT_DB"]
-REDSHIFT_USER = env["REDSHIFT_USER"]
-REDSHIFT_PASSWORD = env["REDSHIFT_PASSWORD"]
-REDSHIFT_URL = env["REDSHIFT_URL"]
+REDSHIFT_HOST = env["REDSHIFT_CONN_HOST"]
+REDSHIFT_PORT = env["REDSHIFT_CONN_PORT"]
+REDSHIFT_DB = env["REDSHIFT_CONN_DB"]
+REDSHIFT_USER = env["REDSHIFT_CONN_LOGIN"]
+REDSHIFT_PASSWORD = env["REDSHIFT_CONN_PASSWORD"]
+REDSHIFT_URL = env["REDSHIFT_CONN_URL"]
 
 
 class ETL_Spark:
     # Path del driver de Postgres para Spark (JDBC) (También sirve para Redshift)
-    DRIVER_PATH = env["DRIVER_PATH"]
+    DRIVER_PATH = env["DRIVER_CLASS_PATH"]
     JDBC_DRIVER = "org.postgresql.Driver"
 
     def __init__(self, job_name=None):

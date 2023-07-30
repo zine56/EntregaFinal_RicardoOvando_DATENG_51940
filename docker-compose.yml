@@ -64,6 +64,9 @@ x-airflow-common:
     - ./plugins:/opt/airflow/plugins
     - ./scripts:/opt/airflow/scripts
     - ./scripts/postgresql-42.5.2.jar:/tmp/drivers/postgresql-42.5.2.jar
+    - ./input_files:/opt/airflow/input_files
+    - ./output_files:/opt/airflow/output_files
+    - ./config:/opt/airflow
   user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-50000}"
   depends_on:
     postgres:
@@ -89,10 +92,21 @@ services:
   airflow-webserver:
     <<: *airflow-common
     # command: python -m pip install yfinance && webserver
-    command: webserver
+    command: >
+      bash -c "
+      if ! $(airflow variables get UMBRAL_MAX); then airflow variables set UMBRAL_MAX $$UMBRAL_MAX; fi &&
+      if ! $(airflow variables get UMBRAL_MIN); then airflow variables set UMBRAL_MIN $$UMBRAL_MIN; fi &&
+      if ! $(airflow variables get DRIVER_CLASS_PATH); then airflow variables set DRIVER_CLASS_PATH $$DRIVER_CLASS_PATH; fi &&
+      if ! $(airflow variables get SPARK_SCRIPTS_DIR); then airflow variables set SPARK_SCRIPTS_DIR $$SPARK_SCRIPTS_DIR; fi &&
+      airflow webserver"
     ports:
       - 8080:8080
-
+    environment:
+      <<: *airflow-common-env
+      UMBRAL_MIN: ${UMBRAL_MIN}
+      UMBRAL_MAX: ${UMBRAL_MAX}
+      DRIVER_CLASS_PATH: ${DRIVER_CLASS_PATH}
+      SPARK_SCRIPTS_DIR: ${SPARK_SCRIPTS_DIR}
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 10s
@@ -102,9 +116,20 @@ services:
 
   airflow-scheduler:
     <<: *airflow-common
-    command: scheduler
+    command: >
+      bash -c "
+      if ! $(airflow variables get UMBRAL_MAX); then airflow variables set UMBRAL_MAX $$UMBRAL_MAX; fi &&
+      if ! $(airflow variables get UMBRAL_MIN); then airflow variables set UMBRAL_MIN $$UMBRAL_MIN; fi &&
+      if ! $(airflow variables get DRIVER_CLASS_PATH); then airflow variables set DRIVER_CLASS_PATH $$DRIVER_CLASS_PATH; fi &&
+      if ! $(airflow variables get SPARK_SCRIPTS_DIR); then airflow variables set SPARK_SCRIPTS_DIR $$SPARK_SCRIPTS_DIR; fi &&
+      airflow scheduler"
     restart: always
-
+    environment:
+      <<: *airflow-common-env
+      UMBRAL_MIN: ${UMBRAL_MIN}
+      UMBRAL_MAX: ${UMBRAL_MAX}
+      DRIVER_CLASS_PATH: ${DRIVER_CLASS_PATH}
+      SPARK_SCRIPTS_DIR: ${SPARK_SCRIPTS_DIR}
   airflow-init:
     <<: *airflow-common
     # yamllint disable rule:line-length
@@ -115,7 +140,6 @@ services:
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
-
   spark:
     image: lucastrubiano/spark:spark_3_4_1
     hostname: spark

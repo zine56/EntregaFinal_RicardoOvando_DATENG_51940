@@ -1,13 +1,16 @@
 # Este script está pensado para correr en Spark y hacer el proceso de ETL de la tabla users
 
 import requests
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime
 import uuid
 import hashlib
 from os import environ as env
 import json
 
-from pyspark.sql.functions import lit,col,to_timestamp,when,current_timestamp
+from pyspark.sql.functions import lit,col,to_timestamp,when,current_timestamp, max as max_, min as min_
 
 from commons import ETL_Spark
 
@@ -15,6 +18,18 @@ class ETL_Stock(ETL_Spark):
     def __init__(self, job_name=None):
         super().__init__(job_name)
         self.process_date = datetime.now().strftime("%Y-%m-%d")
+    
+    def send_email(self, subject, ticker, value):
+        msg = MIMEMultipart()
+        msg['From'] = env['AIRFLOW__SMTP__SMTP_MAIL_FROM']
+        msg['To'] = env['EMAIL_TO']
+        msg['Subject'] = subject
+        msg.attach(MIMEText(f"Ticker {ticker} tiene un valor de {value}"))
+        server = smtplib.SMTP(env['AIRFLOW__SMTP__SMTP_HOST'], env['AIRFLOW__SMTP__SMTP_PORT'])
+        server.starttls()
+        server.login(env['AIRFLOW__SMTP__SMTP_USER'], env['AIRFLOW__SMTP__SMTP_PASSWORD'])
+        server.sendmail(env['AIRFLOW__SMTP__SMTP_USER'], env['EMAIL_TO'], msg.as_string())
+        server.quit()
 
     def run(self):
         process_date = datetime.now().strftime("%Y-%m-%d")
@@ -77,6 +92,22 @@ class ETL_Stock(ETL_Spark):
         batch_id = int(hashlib.sha1(encoded_string).hexdigest(), 16) % 2147483647
         hour_key = datetime.now().strftime('%Y_%m_%d_%H_00')
 
+        umbral_max = env['UMBRAL_MAX']
+        umbral_min = env['UMBRAL_MIN']
+
+        umbral_max = float(env['UMBRAL_MAX'])
+        umbral_min = float(env['UMBRAL_MIN'])
+
+        high_price_row = df_original.filter(df_original.price > umbral_max).orderBy(df_original.price.desc()).first()
+        low_price_row = df_original.filter(df_original.price < umbral_min).orderBy(df_original.price.asc()).first()
+
+        if high_price_row is not None:
+            self.send_email("Alert: Precio Alto SELL SELL SELL", high_price_row['ticker'], high_price_row['price'])
+
+        if low_price_row is not None:
+            self.send_email("Alert: Precio Bajo BUY BUY BUY ", low_price_row['ticker'], low_price_row['price'])
+
+
 
         df_original = df_original.withColumn("price_percentage", col('price') * 100)
         df_original = df_original.withColumn("day_avg", (col('day_high') + col('day_low')) / 2)
@@ -103,10 +134,10 @@ class ETL_Stock(ETL_Spark):
 
         df_final.write \
             .format("jdbc") \
-            .option("url", env['REDSHIFT_URL']) \
-            .option("dbtable", f"{env['REDSHIFT_SCHEMA']}.stock") \
-            .option("user", env['REDSHIFT_USER']) \
-            .option("password", env['REDSHIFT_PASSWORD']) \
+            .option("url", env['REDSHIFT_CONN_URL']) \
+            .option("dbtable", f"{env['REDSHIFT_CONN_SCHEMA']}.stock") \
+            .option("user", env['REDSHIFT_CONN_LOGIN']) \
+            .option("password", env['REDSHIFT_CONN_PASSWORD']) \
             .option("driver", "org.postgresql.Driver") \
             .mode("append") \
             .save()

@@ -1,4 +1,5 @@
 python3.10.exe fetch.yml
 .env
-./postgres_data/
+/postgres_data/
+/logs/
 **/__pycache__/
