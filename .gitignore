@@ -3,3 +3,4 @@ python3.10.exe fetch.yml
 /postgres_data/
 /logs/
 **/__pycache__/
+/config/
